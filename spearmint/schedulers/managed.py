@@ -2,27 +2,28 @@ import multiprocessing
 import os
 import sys
 import pdb
-import theano
 from abstract_scheduler import AbstractScheduler
 from spearmint import launcher
-import theano.sandbox.cuda
 
 __author__ = 'sidharth'
 
 
 class Global:
     process_cache = {}
-
+    my_gpu = None
 
 def process_initializer(first_available_gpu, simulate):
+    import theano.sandbox.cuda
     with first_available_gpu.get_lock():
         if not simulate:
             theano.sandbox.cuda.use('gpu' + str(first_available_gpu.value))
+        Global.my_gpu = int(first_available_gpu.value)
         first_available_gpu.value += 1
-        print 'Process ', os.getpid(), 'took gpu', first_available_gpu.value
+        print 'Process ', os.getpid(), 'took gpu', Global.my_gpu
 
 
 def launch(**kwargs):
+    print 'Launchin task on process with gpu', Global.my_gpu
     output_file = open(kwargs['output_filename'], 'w')
     old_stdout = sys.stdout
     sys.stdout = output_file
@@ -35,10 +36,10 @@ def launch(**kwargs):
 
 class ExperimentRunner:
     def __init__(self, config):
-        self.gpus = config.get('gpus', 1)
+        self.gpus = config.get('max-concurrent', 1)
         self.simulate = config.get('simulate_gpus', False)
         self._first_available_gpu = multiprocessing.Value('i', config.get('first_gpu', 0))
-        self._pool = None
+        print 'GPU count =', self.gpus
         self._pool = multiprocessing.Pool(self.gpus, process_initializer, (self._first_available_gpu, self.simulate))
 
     def schedule_job(self, **kwargs):
