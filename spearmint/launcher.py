@@ -218,7 +218,7 @@ def main():
 
     launch(options.db_address, options.experiment_name, options.job_id)
 
-def launch(db_address, experiment_name, job_id):
+def launch(db_address, experiment_name, job_id, data=None):
     """
     Launches a job from on a given id.
     """
@@ -240,7 +240,7 @@ def launch(db_address, experiment_name, job_id):
             result = matlab_launcher(job)
 
         elif job['language'].lower() == 'python':
-            result = python_launcher(job)
+            result = python_launcher(job, data)
 
         elif job['language'].lower() == 'shell':
             result = shell_launcher(job)
@@ -292,7 +292,7 @@ def launch(db_address, experiment_name, job_id):
 
     db.save(job, experiment_name, 'jobs', {'id' : job_id})
 
-def python_launcher(job):
+def python_launcher(job, data=None):
     # Run a Python function
     sys.stderr.write("Running python job.\n")
 
@@ -324,7 +324,11 @@ def python_launcher(job):
     sys.stderr.write('Importing %s.py\n' % main_file)
     module  = __import__(main_file)
     sys.stderr.write('Running %s.main()\n' % main_file)
-    result = module.main(job['id'], params)
+
+    if data is not None:
+        result = module.main(job['id'], params, data)
+    else:
+        result = module.main(job['id'], params)
 
     # Change back out.
     os.chdir('..')

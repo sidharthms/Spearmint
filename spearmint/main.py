@@ -203,14 +203,14 @@ from spearmint.resources.resource import print_resources_status
 
 from spearmint.utils.parsing import parse_db_address
 
-def get_options():
+def get_options(pargs=None):
     parser = optparse.OptionParser(usage="usage: %prog [options] directory")
 
     parser.add_option("--config", dest="config_file",
                       help="Configuration file name.",
                       type="string", default="config.json")
 
-    (commandline_kwargs, args) = parser.parse_args()
+    (commandline_kwargs, args) = parser.parse_args(pargs)
 
     # Read in the config file
     expt_dir  = os.path.realpath(os.path.expanduser(args[0]))
@@ -245,8 +245,8 @@ def get_options():
 
     return options, expt_dir
 
-def main():
-    options, expt_dir = get_options()
+def main(args=None):
+    options, expt_dir = get_options(args)
 
     resources = parse_resources_from_config(options)
 
@@ -284,7 +284,7 @@ def main():
 
                 # Get a suggestion for the next job
                 suggested_job = get_suggestion(chooser, resource.tasks, db, expt_dir, options, resource_name)
-    
+
                 # Submit the job to the appropriate resource
                 process_id = resource.attemptDispatch(experiment_name, suggested_job, db_address, expt_dir)
 
