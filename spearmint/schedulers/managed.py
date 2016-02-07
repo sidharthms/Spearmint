@@ -24,14 +24,17 @@ def process_initializer(first_available_pid, gpus, simulate):
 
 def launch(**kwargs):
     print 'Launching task on process with gpu', Global.my_gpu
-    output_file = open(kwargs['output_filename'], 'w')
-    old_stdout = sys.stdout
-    sys.stdout = output_file
+    if kwargs['output_filename'] is not None:
+        output_file = open(kwargs['output_filename'], 'w')
+        old_stdout = sys.stdout
+        sys.stdout = output_file
+
     launcher.launch(kwargs['database_address'], kwargs['experiment_name'], kwargs['job_id'], Global.process_cache)
 
-    # cleanup
-    sys.stdout = old_stdout
-    output_file.close()
+    if kwargs['output_filename'] is not None:
+        # cleanup
+        sys.stdout = old_stdout
+        output_file.close()
 
 
 class ExperimentRunner:
@@ -39,15 +42,24 @@ class ExperimentRunner:
         self.concurrent = config.get('max-concurrent', 1)
         self.gpus = config.get('gpus', 2)
         self.simulate = config.get('simulate_gpus', False)
+        self.test = config.get('test', False)
         self._first_available_pid = multiprocessing.Value('i', config.get('first_gpu', 0))
-        print 'GPU count =', self.gpus
-        print 'Process/GPU =', self.concurrent / self.gpus
-        self._pool = multiprocessing.Pool(self.concurrent, process_initializer,
-            (self._first_available_pid, self.gpus, self.simulate))
+        self._pool = None
 
     def schedule_job(self, **kwargs):
-        self._pool.apply_async(launch, (), kwargs)
-        # launch(**kwargs)
+        if not self.test:
+            if self._pool is None:
+                print 'GPU count =', self.gpus
+                print 'Process/GPU =', self.concurrent / self.gpus
+                self._pool = multiprocessing.Pool(self.concurrent, process_initializer,
+                    (self._first_available_pid, self.gpus, self.simulate))
+            self._pool.apply_async(launch, (), kwargs)
+        else:
+            if not self.simulate:
+                import theano.sandbox.cuda
+                theano.sandbox.cuda.use('gpu0')
+            kwargs['output_filename'] = None
+            launch(**kwargs)
         return 1
 
 
