@@ -254,6 +254,12 @@ def main(args=None):
     chooser_module = importlib.import_module('spearmint.choosers.' + options['chooser'])
     chooser = chooser_module.init(options)
     experiment_name     = options.get("experiment-name", 'unnamed-experiment')
+    resets = options.get("resets", [])
+    job_id_offset = 0
+    current_phase = 0
+    if resets:
+        experiment_name += '__' + str(current_phase)
+        print 'STARTING PHASE ' + str(current_phase + 1) + ' (' + experiment_name + ')'
 
     # Connect to the database
     db_address = options['database']['address']
@@ -261,6 +267,23 @@ def main(args=None):
     db         = MongoDB(database_address=db_address)
     
     while True:
+        pause = False
+        if resets:
+            jobs = load_jobs(db, experiment_name)
+            num_pending_jobs = sum([job['status'] == 'pending' for job in jobs])
+            num_finished_jobs = sum([job['status'] == 'complete' for job in jobs])
+            if num_finished_jobs == resets[current_phase] and num_pending_jobs == 0:
+                job_id_offset += resets[current_phase]
+
+                current_phase += 1
+                new_experiment_name = options.get("experiment-name", 'unnamed-experiment') + '__' + str(current_phase)
+                print 'STARTING PHASE ' + str(current_phase + 1) + ' (' + new_experiment_name + ')'
+
+                old_hypers = load_hypers(db, experiment_name)
+                save_hypers(old_hypers, db, new_experiment_name)
+                experiment_name = new_experiment_name
+            if num_finished_jobs + num_pending_jobs >= resets[current_phase]:
+                pause = True
 
         for resource_name, resource in resources.iteritems():
 
@@ -273,17 +296,18 @@ def main(args=None):
             # Note: I chose to fill up one resource and them move on to the next
             # You could also do it the other way, by changing "while" to "if" here
 
-            while resource.acceptingJobs(jobs):
-
+            while resource.acceptingJobs(jobs) and not pause:
                 # Load jobs from DB 
                 # (move out of one or both loops?) would need to pass into load_tasks
                 jobs = load_jobs(db, experiment_name)
+                print 'Found', len(jobs), 'jobs in db'
                 
                 # Remove any broken jobs from pending.
                 remove_broken_jobs(db, jobs, experiment_name, resources)
 
                 # Get a suggestion for the next job
-                suggested_job = get_suggestion(chooser, resource.tasks, db, expt_dir, options, resource_name)
+                suggested_job = get_suggestion(chooser, resource.tasks, db, experiment_name, expt_dir, options,
+                                               resource_name, job_id_offset)
 
                 # Submit the job to the appropriate resource
                 process_id = resource.attemptDispatch(experiment_name, suggested_job, db_address, expt_dir)
@@ -305,7 +329,7 @@ def main(args=None):
 
         # If no resources are accepting jobs, sleep
         # (they might be accepting if suggest takes a while and so some jobs already finished by the time this point is reached)
-        if tired(db, experiment_name, resources):
+        if tired(db, experiment_name, resources) or pause:
             time.sleep(options.get('polling-time', 5))
 
 def tired(db, experiment_name, resources):
@@ -333,12 +357,12 @@ def remove_broken_jobs(db, jobs, experiment_name, resources):
 
 # TODO: support decoupling i.e. task_names containing more than one task,
 #       and the chooser must choose between them in addition to choosing X
-def get_suggestion(chooser, task_names, db, expt_dir, options, resource_name):
+def get_suggestion(chooser, task_names, db, expt_name, expt_dir, options, resource_name, job_id_offset=0):
 
     if len(task_names) == 0:
         raise Exception("Error: trying to obtain suggestion for 0 tasks ")
 
-    experiment_name = options['experiment-name']
+    experiment_name = expt_name
 
     # We are only interested in the tasks in task_names
     task_options = { task: options["tasks"][task] for task in task_names }
@@ -346,7 +370,7 @@ def get_suggestion(chooser, task_names, db, expt_dir, options, resource_name):
     # task_options = options["tasks"]
 
     # Load the tasks from the database -- only those in task_names!
-    task_group = load_task_group(db, options, task_names)
+    task_group = load_task_group(db, options, expt_name, task_names)
 
     # Load the model hypers from the database.
     hypers = load_hypers(db, experiment_name)
@@ -381,7 +405,7 @@ def get_suggestion(chooser, task_names, db, expt_dir, options, resource_name):
 
     jobs = load_jobs(db, experiment_name)
 
-    job_id = len(jobs) + 1
+    job_id = len(jobs) + 1 + job_id_offset
 
     job = {
         'id'          : job_id,
@@ -429,12 +453,12 @@ def save_job(job, db, experiment_name):
     """save a job to the database"""
     db.save(job, experiment_name, 'jobs', {'id' : job['id']})
 
-def load_task_group(db, options, task_names=None):
+def load_task_group(db, options, expt_name, task_names=None):
     if task_names is None:
         task_names = options['tasks'].keys()
     task_options = { task: options["tasks"][task] for task in task_names }
 
-    jobs = load_jobs(db, options['experiment-name'])
+    jobs = load_jobs(db, expt_name)
 
     task_group = TaskGroup(task_options, options['variables'])
 

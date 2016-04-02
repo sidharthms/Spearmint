@@ -190,22 +190,31 @@ import json
 from parsing import parse_db_address
 
 
-def cleanup(path):
+def cleanup(path, filename):
 
     if not os.path.isdir(path):
         raise Exception("%s is not a valid directory" % path)
 
-    with open(os.path.join(path, 'config.json'), 'r') as f:
+    if not filename:
+        filename = 'config.json'
+    with open(os.path.join(path, filename), 'r') as f:
         cfg = json.load(f)
 
+    resets = cfg.get('resets', None)
     db_address = parse_db_address(cfg)
-    print 'Cleaning up experiment %s in database at %s' % (cfg["experiment-name"], db_address)
-
     client = pymongo.MongoClient(db_address)
-
     db = client.spearmint
-    db[cfg["experiment-name"]]['jobs'].drop()
-    db[cfg["experiment-name"]]['hypers'].drop()
+
+    if resets:
+        for i in range(len(resets)):
+            exp_name = cfg["experiment-name"] + '__' + str(i)
+            print 'Cleaning up experiment %s in database at %s' % (exp_name, db_address)
+            db[exp_name]['jobs'].drop()
+            db[exp_name]['hypers'].drop()
+    else:
+        print 'Cleaning up experiment %s in database at %s' % (cfg["experiment-name"], db_address)
+        db[cfg["experiment-name"]]['jobs'].drop()
+        db[cfg["experiment-name"]]['hypers'].drop()
 
 if __name__ == '__main__':
     cleanup(sys.argv[1])
